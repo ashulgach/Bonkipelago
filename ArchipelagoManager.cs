@@ -8,6 +8,11 @@ using System.Linq;
 using Il2Cpp;
 using Il2CppAssets.Scripts._Data.Tomes;
 using Il2CppAssets.Scripts.Inventory__Items__Pickups.Items;
+using Il2CppAssets.Scripts.Actors.Player;
+using Il2CppAssets.Scripts.Inventory__Items__Pickups;
+using Il2CppAssets.Scripts.Inventory__Items__Pickups.Weapons;
+using Il2CppAssets.Scripts.Inventory__Items__Pickups.Stats;
+using UnityEngine;
 
 namespace Bonkipelago
 {
@@ -41,6 +46,20 @@ namespace Bonkipelago
 
         // Chest location base ID (chests are commodities: BASE_ID + counter)
         private const long CHEST_BASE_ID = 1000;
+
+        // Pending grants queue + scheduling
+        private enum PendingKind { Weapon, Tome, Item }
+        private class PendingGrant
+        {
+            public PendingKind Kind;
+            public EWeapon Weapon;
+            public ETome Tome;
+            public EItem Item;
+        }
+
+        private readonly System.Collections.Generic.List<PendingGrant> pendingGrants = new System.Collections.Generic.List<PendingGrant>();
+        private bool subscribedPlayerInit = false;
+        private float nextPendingProcessTime = 0f;
 
         // Item name mappings from Archipelago to game enums
         private static readonly Dictionary<string, EWeapon> weaponNameMap = new Dictionary<string, EWeapon>
@@ -324,19 +343,48 @@ namespace Bonkipelago
             // Check if it's a weapon
             if (weaponNameMap.TryGetValue(itemName, out var weapon))
             {
+                // Mark as unlocked (affects level-up filtering)
                 UnlockWeapon(weapon);
+                // Try to add immediately if we're in a run and have a slot
+                if (TryGrantWeaponInRun(weapon))
+                {
+                    MelonLogger.Msg($"Granted weapon in run: {weapon}");
+                }
+                else
+                {
+                    EnqueueWeapon(weapon);
+                }
                 granted = true;
             }
             // Check if it's a tome
             else if (tomeNameMap.TryGetValue(itemName, out var tome))
             {
+                // Mark as unlocked (affects level-up filtering)
                 UnlockTome(tome);
+                // Try to add immediately if we're in a run and have a slot
+                if (TryGrantTomeInRun(tome))
+                {
+                    MelonLogger.Msg($"Granted tome in run: {tome}");
+                }
+                else
+                {
+                    EnqueueTome(tome);
+                }
                 granted = true;
             }
             // Check if it's an item
             else if (itemNameMap.TryGetValue(itemName, out var gameItem))
             {
                 UnlockItem(gameItem);
+                // Always try to grant EItem immediately
+                if (TryGrantItemInRun(gameItem))
+                {
+                    MelonLogger.Msg($"Granted item in run: {gameItem}");
+                }
+                else
+                {
+                    EnqueueItem(gameItem);
+                }
                 granted = true;
             }
 
@@ -346,6 +394,133 @@ namespace Bonkipelago
             }
 
             helper.DequeueItem();
+        }
+
+        // Get the current player's inventory if spawned
+        private PlayerInventory GetPlayerInventory()
+        {
+            try
+            {
+                var player = MyPlayer.Instance;
+                return player != null ? player.inventory : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // Attempt to add a weapon to the live run (if possible)
+        private bool TryGrantWeaponInRun(EWeapon eWeapon)
+        {
+            var inv = GetPlayerInventory();
+            if (inv == null)
+            {
+                MelonLogger.Msg("Player not available yet; weapon will be selectable on level-up.");
+                return false;
+            }
+
+            try
+            {
+                // Already have this weapon?
+                var wInv = inv.weaponInventory;
+                if (wInv == null)
+                    return false;
+
+                int currentLevel = wInv.GetWeaponLevel(eWeapon);
+                if (currentLevel > 0)
+                {
+                    MelonLogger.Msg($"Weapon already present: {eWeapon} (level {currentLevel}).");
+                    return false;
+                }
+
+                // Check slot availability
+                if (!InventoryUtility.CanUnlockWeapons())
+                {
+                    MelonLogger.Msg("No available weapon slots; unlocked for future selection.");
+                    return false;
+                }
+
+                var data = DataManager.Instance.GetWeapon(eWeapon);
+                if (data == null)
+                    return false;
+
+                var emptyOffer = new Il2CppSystem.Collections.Generic.List<Il2CppAssets.Scripts.Inventory__Items__Pickups.Stats.StatModifier>();
+                wInv.AddWeapon(data, emptyOffer);
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Error($"Error granting weapon {eWeapon}: {ex.Message}");
+                return false;
+            }
+        }
+
+        // Attempt to add a tome to the live run (if possible)
+        private bool TryGrantTomeInRun(ETome eTome)
+        {
+            var inv = GetPlayerInventory();
+            if (inv == null)
+            {
+                MelonLogger.Msg("Player not available yet; tome will be selectable on level-up.");
+                return false;
+            }
+
+            try
+            {
+                var tInv = inv.tomeInventory;
+                if (tInv == null)
+                    return false;
+
+                if (tInv.HasTome(eTome))
+                {
+                    MelonLogger.Msg($"Tome already present: {eTome}.");
+                    return false;
+                }
+
+                if (!InventoryUtility.CanUnlockTomes())
+                {
+                    MelonLogger.Msg("No available tome slots; unlocked for future selection.");
+                    return false;
+                }
+
+                var data = DataManager.Instance.GetTome(eTome);
+                if (data == null)
+                    return false;
+
+                var emptyOffer = new Il2CppSystem.Collections.Generic.List<Il2CppAssets.Scripts.Inventory__Items__Pickups.Stats.StatModifier>();
+                tInv.AddTome(data, emptyOffer, ERarity.Common);
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Error($"Error granting tome {eTome}: {ex.Message}");
+                return false;
+            }
+        }
+
+        // Attempt to add an EItem to the live run
+        private bool TryGrantItemInRun(EItem eItem)
+        {
+            var inv = GetPlayerInventory();
+            if (inv == null)
+            {
+                MelonLogger.Msg("Player not available yet; item will be applied when possible.");
+                return false;
+            }
+
+            try
+            {
+                inv.itemInventory?.AddItem(eItem);
+                // Notify run unlockables logic (some systems update on this hook)
+                RunUnlockables.OnItemAdded(eItem);
+                return true;
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Error($"Error granting item {eItem}: {ex.Message}");
+                return false;
+            }
         }
 
         public void CheckLocation(long locationId)
@@ -374,8 +549,15 @@ namespace Bonkipelago
 
         public void Update()
         {
-            // Any per-frame updates needed
-            // Archipelago.MultiClient.Net handles most things async
+            // Subscribe once to player inventory initialization event
+            EnsureSubscribedToPlayerEvents();
+
+            // Throttled pending processing
+            if (pendingGrants.Count > 0 && Time.time >= nextPendingProcessTime)
+            {
+                ProcessPendingGrants(5);
+                nextPendingProcessTime = Time.time + 0.5f;
+            }
         }
 
         // Weapon/Tome unlocking
@@ -573,6 +755,119 @@ namespace Bonkipelago
             {
                 MelonLogger.Msg("Running low on scouted chests, scouting more...");
                 ScoutAheadChests(50);
+            }
+        }
+
+        // Get the current player's inventory if spawned
+        private PlayerInventory GetPlayerInventory()
+        {
+            try
+            {
+                var player = MyPlayer.Instance;
+                return player != null ? player.inventory : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void EnsureSubscribedToPlayerEvents()
+        {
+            if (subscribedPlayerInit) return;
+            try
+            {
+                MyPlayer.A_PlayerInventoryInitialized += OnPlayerInventoryInitialized;
+                subscribedPlayerInit = true;
+            }
+            catch { }
+        }
+
+        private void OnPlayerInventoryInitialized()
+        {
+            ProcessPendingGrants(10);
+        }
+
+        private void EnqueueWeapon(EWeapon weapon)
+        {
+            if (!pendingGrants.Exists(p => p.Kind == PendingKind.Weapon && p.Weapon == weapon))
+            {
+                pendingGrants.Add(new PendingGrant { Kind = PendingKind.Weapon, Weapon = weapon });
+                MelonLogger.Msg($"Queued weapon for later grant: {weapon}");
+            }
+        }
+
+        private void EnqueueTome(ETome tome)
+        {
+            if (!pendingGrants.Exists(p => p.Kind == PendingKind.Tome && p.Tome == tome))
+            {
+                pendingGrants.Add(new PendingGrant { Kind = PendingKind.Tome, Tome = tome });
+                MelonLogger.Msg($"Queued tome for later grant: {tome}");
+            }
+        }
+
+        private void EnqueueItem(EItem item)
+        {
+            // allow stacks, but avoid immediate duplicate spam
+            if (pendingGrants.Count == 0 || pendingGrants[pendingGrants.Count - 1].Item != item)
+            {
+                pendingGrants.Add(new PendingGrant { Kind = PendingKind.Item, Item = item });
+                MelonLogger.Msg($"Queued item for later grant: {item}");
+            }
+        }
+
+        private void ProcessPendingGrants(int maxCount)
+        {
+            var inv = GetPlayerInventory();
+            if (inv == null) return;
+
+            int processed = 0;
+            for (int i = pendingGrants.Count - 1; i >= 0 && processed < maxCount; i--)
+            {
+                var p = pendingGrants[i];
+                bool remove = false;
+                switch (p.Kind)
+                {
+                    case PendingKind.Weapon:
+                        if (inv.weaponInventory != null && inv.weaponInventory.GetWeaponLevel(p.Weapon) > 0)
+                        {
+                            remove = true; // already present
+                        }
+                        else if (TryGrantWeaponInRun(p.Weapon))
+                        {
+                            MelonLogger.Msg($"Granted queued weapon: {p.Weapon}");
+                            remove = true;
+                        }
+                        break;
+                    case PendingKind.Tome:
+                        if (inv.tomeInventory != null && inv.tomeInventory.HasTome(p.Tome))
+                        {
+                            remove = true; // already present
+                        }
+                        else if (TryGrantTomeInRun(p.Tome))
+                        {
+                            MelonLogger.Msg($"Granted queued tome: {p.Tome}");
+                            remove = true;
+                        }
+                        break;
+                    case PendingKind.Item:
+                        if (inv.itemInventory != null && inv.itemInventory.GetAmount(p.Item) > 0)
+                        {
+                            remove = true; // already present
+                        }
+                        else if (TryGrantItemInRun(p.Item))
+                        {
+                            MelonLogger.Msg($"Granted queued item: {p.Item}");
+                            remove = true;
+                        }
+                        break;
+                }
+
+                if (remove)
+                {
+                    pendingGrants.RemoveAt(i);
+                    processed++;
+                }
             }
         }
     }
