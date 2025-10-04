@@ -4,6 +4,8 @@ using System.IO;
 using System.Text;
 using System.Reflection;
 using Il2CppInterop.Runtime;
+using System;
+using System.Linq;
 
 namespace Bonkipelago
 {
@@ -178,6 +180,161 @@ namespace Bonkipelago
             InspectObjectsWithComponent("MyPlayer", "player_inspection");
         }
 
+        public static void DumpMyPlayerMethods()
+        {
+            MelonLogger.Msg("Dumping all MyPlayer class methods...");
+
+            outputBuffer.Clear();
+            outputBuffer.AppendLine("=== MyPlayer CLASS METHODS ===");
+            outputBuffer.AppendLine($"Timestamp: {DateTime.Now}");
+            outputBuffer.AppendLine();
+            outputBuffer.AppendLine("Searching for methods related to granting weapons, tomes, and items...");
+            outputBuffer.AppendLine();
+
+            try
+            {
+                // Find MyPlayer type
+                Type myPlayerType = null;
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    myPlayerType = assembly.GetType("Il2Cpp.MyPlayer");
+                    if (myPlayerType != null)
+                        break;
+                }
+
+                if (myPlayerType == null)
+                {
+                    outputBuffer.AppendLine("ERROR: MyPlayer type not found!");
+                    WriteToFile("myplayer_methods_ERROR");
+                    return;
+                }
+
+                outputBuffer.AppendLine($"Found type: {myPlayerType.FullName}");
+                outputBuffer.AppendLine($"Assembly: {myPlayerType.Assembly.GetName().Name}");
+                outputBuffer.AppendLine();
+
+                // Get all methods (public and non-public, instance and static)
+                var allFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+                var methods = myPlayerType.GetMethods(allFlags);
+
+                // Filter for potentially relevant methods
+                var relevantKeywords = new[] {
+                    "weapon", "tome", "item", "unlock", "grant", "give", "add", "acquire", "obtain",
+                    "equip", "pickup", "collect", "inventory", "upgrade", "level"
+                };
+
+                var relevantMethods = methods.Where(m =>
+                    relevantKeywords.Any(k => m.Name.ToLower().Contains(k))
+                ).OrderBy(m => m.Name).ToList();
+
+                outputBuffer.AppendLine("=== POTENTIALLY RELEVANT METHODS ===");
+                outputBuffer.AppendLine($"Found {relevantMethods.Count} methods matching keywords: {string.Join(", ", relevantKeywords)}");
+                outputBuffer.AppendLine();
+
+                foreach (var method in relevantMethods)
+                {
+                    DumpMethodSignature(method);
+                }
+
+                outputBuffer.AppendLine();
+                outputBuffer.AppendLine("=== ALL PUBLIC METHODS ===");
+                var publicMethods = methods.Where(m => m.IsPublic).OrderBy(m => m.Name).ToList();
+                outputBuffer.AppendLine($"Found {publicMethods.Count} public methods");
+                outputBuffer.AppendLine();
+
+                foreach (var method in publicMethods)
+                {
+                    DumpMethodSignature(method);
+                }
+
+                outputBuffer.AppendLine();
+                outputBuffer.AppendLine("=== ALL PRIVATE/PROTECTED METHODS ===");
+                var privateMethods = methods.Where(m => !m.IsPublic).OrderBy(m => m.Name).ToList();
+                outputBuffer.AppendLine($"Found {privateMethods.Count} private/protected methods");
+                outputBuffer.AppendLine();
+
+                foreach (var method in privateMethods)
+                {
+                    DumpMethodSignature(method);
+                }
+
+                WriteToFile("myplayer_methods");
+            }
+            catch (Exception ex)
+            {
+                outputBuffer.AppendLine($"ERROR: {ex.Message}");
+                outputBuffer.AppendLine($"Stack trace: {ex.StackTrace}");
+                WriteToFile("myplayer_methods_ERROR");
+                MelonLogger.Error($"Failed to dump MyPlayer methods: {ex.Message}");
+            }
+        }
+
+        private static void DumpMethodSignature(MethodInfo method)
+        {
+            try
+            {
+                // Build method signature
+                string visibility = method.IsPublic ? "public" : method.IsPrivate ? "private" : "protected";
+                string staticMod = method.IsStatic ? "static " : "";
+                string returnType = GetFriendlyTypeName(method.ReturnType);
+                string methodName = method.Name;
+
+                // Get parameters
+                var parameters = method.GetParameters();
+                string paramList = string.Join(", ", parameters.Select(p =>
+                    $"{GetFriendlyTypeName(p.ParameterType)} {p.Name}"
+                ));
+
+                outputBuffer.AppendLine($"{visibility} {staticMod}{returnType} {methodName}({paramList})");
+            }
+            catch (Exception ex)
+            {
+                outputBuffer.AppendLine($"[Error dumping method: {ex.Message}]");
+            }
+        }
+
+        private static string GetFriendlyTypeName(Type type)
+        {
+            try
+            {
+                // Handle generic types
+                if (type.IsGenericType)
+                {
+                    var genericTypeDef = type.GetGenericTypeDefinition();
+                    var genericArgs = type.GetGenericArguments();
+                    string genericName = genericTypeDef.Name.Split('`')[0];
+                    string genericParams = string.Join(", ", genericArgs.Select(t => GetFriendlyTypeName(t)));
+                    return $"{genericName}<{genericParams}>";
+                }
+
+                // Handle arrays
+                if (type.IsArray)
+                {
+                    return $"{GetFriendlyTypeName(type.GetElementType())}[]";
+                }
+
+                // Simplify common types
+                if (type.FullName != null)
+                {
+                    if (type.FullName.StartsWith("Il2Cpp"))
+                    {
+                        // Strip Il2Cpp prefix for readability
+                        return type.FullName.Replace("Il2Cpp", "").Replace("Assets.Scripts.", "");
+                    }
+                    if (type.FullName.StartsWith("System."))
+                    {
+                        return type.Name;
+                    }
+                }
+
+                return type.Name;
+            }
+            catch
+            {
+                return type.ToString();
+            }
+        }
+
         public static void InspectManagers()
         {
             MelonLogger.Msg("Inspecting game managers...");
@@ -205,6 +362,92 @@ namespace Bonkipelago
             else
             {
                 MelonLogger.Warning("Managers GameObject not found!");
+            }
+        }
+
+        // Dump all enum values from game assemblies
+        public static void DumpEnums()
+        {
+            MelonLogger.Msg("Dumping all game enums...");
+
+            outputBuffer.Clear();
+            outputBuffer.AppendLine("=== GAME ENUM VALUES ===");
+            outputBuffer.AppendLine($"Timestamp: {DateTime.Now}");
+            outputBuffer.AppendLine();
+
+            try
+            {
+                // EItem enum
+                DumpEnumValues("Il2CppAssets.Scripts.Inventory__Items__Pickups.Items.EItem");
+                outputBuffer.AppendLine();
+
+                // EWeapon enum
+                DumpEnumValues("Il2Cpp.EWeapon");
+                outputBuffer.AppendLine();
+
+                // ETome enum
+                DumpEnumValues("Il2CppAssets.Scripts._Data.Tomes.ETome");
+                outputBuffer.AppendLine();
+
+                WriteToFile("enum_dump");
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Error($"Failed to dump enums: {ex.Message}");
+                MelonLogger.Error($"Stack trace: {ex.StackTrace}");
+            }
+        }
+
+        private static void DumpEnumValues(string fullTypeName)
+        {
+            try
+            {
+                // Find the type in loaded assemblies
+                Type enumType = null;
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    enumType = assembly.GetType(fullTypeName);
+                    if (enumType != null)
+                        break;
+                }
+
+                if (enumType == null)
+                {
+                    outputBuffer.AppendLine($"Enum not found: {fullTypeName}");
+                    return;
+                }
+
+                outputBuffer.AppendLine($"=== {enumType.Name} ===");
+                outputBuffer.AppendLine($"Namespace: {enumType.Namespace}");
+                outputBuffer.AppendLine($"Full name: {enumType.FullName}");
+                outputBuffer.AppendLine();
+
+                if (!enumType.IsEnum)
+                {
+                    outputBuffer.AppendLine($"Type is not an enum!");
+                    return;
+                }
+
+                // Get all enum values
+                var values = Enum.GetValues(enumType);
+                var names = Enum.GetNames(enumType);
+
+                outputBuffer.AppendLine($"Total values: {values.Length}");
+                outputBuffer.AppendLine();
+
+                for (int i = 0; i < names.Length; i++)
+                {
+                    var value = values.GetValue(i);
+                    var intValue = Convert.ToInt32(value);
+                    outputBuffer.AppendLine($"{names[i]} = {intValue}");
+                }
+
+                outputBuffer.AppendLine();
+                outputBuffer.AppendLine("---");
+            }
+            catch (Exception ex)
+            {
+                outputBuffer.AppendLine($"Error dumping {fullTypeName}: {ex.Message}");
             }
         }
     }

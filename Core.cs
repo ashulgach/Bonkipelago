@@ -14,6 +14,8 @@ namespace Bonkipelago
             LoggerInstance.Msg("Bonkipelago initialized!");
             LoggerInstance.Msg("===========================================");
             LoggerInstance.Msg("Debug Commands:");
+            LoggerInstance.Msg("  F2  - Dump all MyPlayer class methods");
+            LoggerInstance.Msg("  F3  - Dump all enum values (EItem, EWeapon, ETome)");
             LoggerInstance.Msg("  F4  - Inspect Managers");
             LoggerInstance.Msg("  F5  - Inspect Chests");
             LoggerInstance.Msg("  F6  - Inspect Enemies");

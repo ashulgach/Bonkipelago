@@ -14,6 +14,12 @@ namespace Bonkipelago
 
         public static void Update()
         {
+            // Press F2 to dump all MyPlayer methods
+            if (Input.GetKeyDown(KeyCode.F2))
+            {
+                ComponentInspector.DumpMyPlayerMethods();
+            }
+
             // Press F8 to dump all GameObjects in the current scene to file
             if (Input.GetKeyDown(KeyCode.F8))
             {
@@ -53,6 +59,12 @@ namespace Bonkipelago
             if (Input.GetKeyDown(KeyCode.F4))
             {
                 ComponentInspector.InspectManagers();
+            }
+
+            // Press F3 to dump all enum values
+            if (Input.GetKeyDown(KeyCode.F3))
+            {
+                ComponentInspector.DumpEnums();
             }
 
             if (!loggedThisFrame)
