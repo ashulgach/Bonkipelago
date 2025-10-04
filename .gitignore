@@ -1,0 +1,46 @@
+# Build outputs
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+
+# MelonLoader
+MelonLoader/
+Mods/
+UserData/
+UserLibs/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+packages/
+*.nupkg
+*.snupkg
+
+# Logs
+*.log
+Logs/
+
+# Temporary files
+*.tmp
+*.temp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Keep project structure
+!PrintBonk/
+!Bonkipelago/
+PrintBonk/bin/
+PrintBonk/obj/
+Bonkipelago/bin/
+Bonkipelago/obj/
