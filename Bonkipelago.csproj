@@ -349,6 +349,7 @@
 		<Compile Include="ItemMapper.cs" />
 		<Compile Include="DebugHelper.cs" />
 		<Compile Include="ComponentInspector.cs" />
+		<Compile Include="ConnectionStatusUI.cs" />
 		<Compile Include="Patches\ChestPatches.cs" />
 		<Compile Include="Patches\EnemyPatches.cs" />
 		<Compile Include="Patches\LevelUpPatches.cs" />

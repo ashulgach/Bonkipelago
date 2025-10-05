@@ -67,8 +67,9 @@ namespace Bonkipelago.Patches
                     itemData.eItem = EItem.Key; // Use Key as placeholder for visual
                     IsPlaceholderItem = true; // Mark as placeholder so we can block granting
 
-                    // TODO: Modify description to show "Found [ItemName] for [PlayerName]'s [Game]"
-                    // This might require modifying the chest UI text directly
+                    // Modify description to show AP item info
+                    itemData.description = $"Found {scoutInfo.ItemName} for {scoutInfo.PlayerName}";
+                    itemData.shortDescription = $"{scoutInfo.ItemName} for {scoutInfo.PlayerName}";
                 }
                 else
                 {
@@ -85,10 +86,20 @@ namespace Bonkipelago.Patches
                             break;
 
                         case ItemMapper.ItemType.Weapon:
-                        case ItemMapper.ItemType.Tome:
-                            // Weapons and tomes are unlocked (not given), show placeholder
-                            MelonLogger.Msg($"Mapped to unlock: {mappedItem.Type} - showing Key placeholder (will unlock via OnItemReceived)");
+                            // Weapons are unlocked (not given), show placeholder with custom text
+                            MelonLogger.Msg($"Mapped to weapon unlock: {mappedItem.Weapon} - showing Key placeholder (will unlock via OnItemReceived)");
                             itemData.eItem = EItem.Key;
+                            itemData.description = $"Unlocked {mappedItem.Weapon}!";
+                            itemData.shortDescription = $"Unlocked {mappedItem.Weapon}!";
+                            IsPlaceholderItem = true; // Block granting since it's just an unlock
+                            break;
+
+                        case ItemMapper.ItemType.Tome:
+                            // Tomes are unlocked (not given), show placeholder with custom text
+                            MelonLogger.Msg($"Mapped to tome unlock: {mappedItem.Tome} - showing Key placeholder (will unlock via OnItemReceived)");
+                            itemData.eItem = EItem.Key;
+                            itemData.description = $"Unlocked {mappedItem.Tome}!";
+                            itemData.shortDescription = $"Unlocked {mappedItem.Tome}!";
                             IsPlaceholderItem = true; // Block granting since it's just an unlock
                             break;
 

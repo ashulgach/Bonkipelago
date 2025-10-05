@@ -54,8 +54,8 @@ namespace Bonkipelago
             // Debug helper updates
             DebugHelper.Update();
 
-            // Archipelago manager updates
-            ArchipelagoManager.Instance.Update();
+            // Connection status UI updates
+            ConnectionStatusUI.Instance.Update();
 
             // Handle manual connect/disconnect
             if (Input.GetKeyDown(KeyCode.F10))
@@ -66,6 +66,7 @@ namespace Bonkipelago
             if (Input.GetKeyDown(KeyCode.F11))
             {
                 ArchipelagoManager.Instance.Disconnect();
+                ConnectionStatusUI.Instance.ForceUpdate();
             }
         }
 
@@ -78,6 +79,7 @@ namespace Bonkipelago
                 : BonkipelagoConfig.Password;
 
             ArchipelagoManager.Instance.Connect(server, slot, password);
+            ConnectionStatusUI.Instance.ForceUpdate();
         }
     }
 }

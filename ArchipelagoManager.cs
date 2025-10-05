@@ -33,25 +33,15 @@ namespace Bonkipelago
 
         public bool IsConnected => isConnected;
 
-        // Track unlocked weapons, tomes, and items
+        // Track unlocked weapons and tomes (persist between runs)
         private HashSet<EWeapon> unlockedWeapons = new HashSet<EWeapon>();
         private HashSet<ETome> unlockedTomes = new HashSet<ETome>();
-        private HashSet<EItem> unlockedItems = new HashSet<EItem>();
 
         // Cache location->item mappings from scouting
         private Dictionary<long, LocationScoutInfo> scoutedLocations = new Dictionary<long, LocationScoutInfo>();
 
         // Track chest locations that we've checked (to avoid double-granting)
         private HashSet<long> checkedChestLocations = new HashSet<long>();
-
-        // Queues for granting items and unlocks
-        private Queue<EWeapon> weaponUnlockQueue = new Queue<EWeapon>();
-        private Queue<ETome> tomeUnlockQueue = new Queue<ETome>();
-        private Queue<EItem> itemGrantQueue = new Queue<EItem>();
-
-        // Retry delay for item granting (to avoid log spam)
-        private float lastItemGrantAttempt = 0f;
-        private const float ITEM_GRANT_RETRY_DELAY = 1.0f; // Try once per second
 
         // Chest location base ID (chests are commodities: BASE_ID + counter)
         private const long CHEST_BASE_ID = 1000;
@@ -63,7 +53,7 @@ namespace Bonkipelago
             // Load unlocked items from config
             LoadUnlockedFromConfig();
 
-            MelonLogger.Msg($"ArchipelagoManager initialized. Weapons: {unlockedWeapons.Count}, Tomes: {unlockedTomes.Count}, Items: {unlockedItems.Count}");
+            MelonLogger.Msg($"ArchipelagoManager initialized. Weapons: {unlockedWeapons.Count}, Tomes: {unlockedTomes.Count}");
         }
 
         private void LoadUnlockedFromConfig()
@@ -93,19 +83,6 @@ namespace Bonkipelago
                     }
                 }
             }
-
-            // Load items
-            string itemsStr = BonkipelagoConfig.UnlockedItems;
-            if (!string.IsNullOrEmpty(itemsStr))
-            {
-                foreach (string itemName in itemsStr.Split(','))
-                {
-                    if (System.Enum.TryParse<EItem>(itemName.Trim(), out var item))
-                    {
-                        unlockedItems.Add(item);
-                    }
-                }
-            }
         }
 
         private void SaveUnlockedToConfig()
@@ -115,9 +92,6 @@ namespace Bonkipelago
 
             // Save tomes
             BonkipelagoConfig.UnlockedTomes = string.Join(",", unlockedTomes);
-
-            // Save items
-            BonkipelagoConfig.UnlockedItems = string.Join(",", unlockedItems);
         }
 
         // Info about what's at a location
@@ -162,6 +136,10 @@ namespace Bonkipelago
                     isConnected = true;
                     MelonLogger.Msg($"Successfully connected to Archipelago as {slotName}!");
                     MelonLogger.Msg($"Slot: {success.Slot} | Team: {success.Team}");
+
+                    // Sync unlocks from server
+                    MelonLogger.Msg("Syncing unlocks from server...");
+                    SyncUnlocksFromServer();
 
                     // Scout ahead chest locations
                     MelonLogger.Msg("Scouting chest locations...");
@@ -236,33 +214,41 @@ namespace Bonkipelago
 
             MelonLogger.Msg($"Received item: {itemName} (ID: {item.ItemId}) from {playerName} [Location: {locationId}]");
 
+            // Map Archipelago item ID to game item
+            var mappedItem = ItemMapper.MapItem(item.ItemId);
+
             // Check if this item came from a chest location we already processed
             bool isFromChest = checkedChestLocations.Contains(locationId);
             if (isFromChest)
             {
-                MelonLogger.Msg($"Item from chest location {locationId} - will be granted by game, skipping queue");
-                helper.DequeueItem();
-                return;
+                // Chest items: Skip EItems (game granted them), but process weapon/tome unlocks
+                if (mappedItem.Type == ItemMapper.ItemType.Item)
+                {
+                    MelonLogger.Msg($"Item from chest location {locationId} - already granted by game, skipping");
+                    helper.DequeueItem();
+                    return;
+                }
+                else
+                {
+                    MelonLogger.Msg($"Unlock from chest location {locationId} - processing");
+                }
             }
-
-            // Map Archipelago item ID to game item
-            var mappedItem = ItemMapper.MapItem(item.ItemId);
 
             switch (mappedItem.Type)
             {
                 case ItemMapper.ItemType.Weapon:
                     MelonLogger.Msg($"Mapped to weapon: {mappedItem.Weapon}");
-                    QueueWeaponUnlock(mappedItem.Weapon.Value);
+                    UnlockWeapon(mappedItem.Weapon.Value);
                     break;
 
                 case ItemMapper.ItemType.Tome:
                     MelonLogger.Msg($"Mapped to tome: {mappedItem.Tome}");
-                    QueueTomeUnlock(mappedItem.Tome.Value);
+                    UnlockTome(mappedItem.Tome.Value);
                     break;
 
                 case ItemMapper.ItemType.Item:
                     MelonLogger.Msg($"Mapped to item: {mappedItem.Item}");
-                    QueueItemGrant(mappedItem.Item.Value);
+                    GrantItem(mappedItem.Item.Value);
                     break;
 
                 case ItemMapper.ItemType.Unknown:
@@ -307,96 +293,85 @@ namespace Bonkipelago
             session.SetGoalAchieved();
         }
 
-        public void Update()
+        // Sync unlocked items from server (called on connect)
+        private void SyncUnlocksFromServer()
         {
-            // Process queued items and unlocks
-            ProcessQueues();
-        }
-
-        // Process all queued items and unlocks
-        private void ProcessQueues()
-        {
-            // Process weapon unlocks (just unlock, don't grant)
-            while (weaponUnlockQueue.Count > 0)
+            if (!isConnected || session == null)
             {
-                EWeapon weapon = weaponUnlockQueue.Dequeue();
-                UnlockWeapon(weapon);
+                MelonLogger.Warning("Cannot sync unlocks: not connected");
+                return;
             }
 
-            // Process tome unlocks (just unlock, don't grant)
-            while (tomeUnlockQueue.Count > 0)
+            try
             {
-                ETome tome = tomeUnlockQueue.Dequeue();
-                UnlockTome(tome);
-            }
+                // Get all items received so far from the server
+                var allItems = session.Items.AllItemsReceived;
 
-            // Process item grants (grant during the run)
-            // Only attempt once per second to avoid log spam when player isn't in game
-            if (itemGrantQueue.Count > 0)
-            {
-                float currentTime = UnityEngine.Time.time;
-                if (currentTime - lastItemGrantAttempt >= ITEM_GRANT_RETRY_DELAY)
+                MelonLogger.Msg($"Syncing {allItems.Count} items from server...");
+
+                // Clear current unlocks (we'll rebuild from server state)
+                unlockedWeapons.Clear();
+                unlockedTomes.Clear();
+
+                foreach (var item in allItems)
                 {
-                    lastItemGrantAttempt = currentTime;
+                    long locationId = item.LocationId;
 
-                    // Check if player is available
-                    var player = MyPlayer.Instance;
-                    if (player != null && player.inventory != null && player.inventory.itemInventory != null)
+                    // Check if this is from a chest location
+                    bool isFromChest = locationId >= CHEST_BASE_ID && locationId < CHEST_BASE_ID + 1000;
+                    if (isFromChest)
                     {
-                        // Player is available! Grant ALL queued items immediately
-                        int grantedCount = 0;
-                        while (itemGrantQueue.Count > 0)
-                        {
-                            EItem item = itemGrantQueue.Dequeue();
-                            GrantItemImmediate(item);
-                            grantedCount++;
-                        }
-                        MelonLogger.Msg($"Granted {grantedCount} queued items to player");
+                        // Mark as checked to prevent double-granting
+                        checkedChestLocations.Add(locationId);
                     }
-                    else
+
+                    // Map Archipelago item ID to game item
+                    var mappedItem = ItemMapper.MapItem(item.ItemId);
+
+                    switch (mappedItem.Type)
                     {
-                        // Player not available yet, will retry next second
-                        if (itemGrantQueue.Count > 0)
-                        {
-                            MelonLogger.Warning($"Player not in-game yet - {itemGrantQueue.Count} items waiting (will retry in 1 second)");
-                        }
+                        case ItemMapper.ItemType.Weapon:
+                            unlockedWeapons.Add(mappedItem.Weapon.Value);
+                            break;
+
+                        case ItemMapper.ItemType.Tome:
+                            unlockedTomes.Add(mappedItem.Tome.Value);
+                            break;
+
+                        case ItemMapper.ItemType.Item:
+                            // EItems are consumables - never persist, so don't track them
+                            break;
                     }
                 }
+
+                // Save to config
+                SaveUnlockedToConfig();
+
+                MelonLogger.Msg($"Sync complete: {unlockedWeapons.Count} weapons, {unlockedTomes.Count} tomes");
+            }
+            catch (System.Exception ex)
+            {
+                MelonLogger.Error($"Error syncing unlocks from server: {ex.Message}");
+                MelonLogger.Error($"Stack trace: {ex.StackTrace}");
             }
         }
 
-        // Queue a weapon unlock
-        public void QueueWeaponUnlock(EWeapon weapon)
-        {
-            weaponUnlockQueue.Enqueue(weapon);
-            MelonLogger.Msg($"Queued weapon unlock: {weapon}");
-        }
-
-        // Queue a tome unlock
-        public void QueueTomeUnlock(ETome tome)
-        {
-            tomeUnlockQueue.Enqueue(tome);
-            MelonLogger.Msg($"Queued tome unlock: {tome}");
-        }
-
-        // Queue an item grant
-        public void QueueItemGrant(EItem item)
-        {
-            itemGrantQueue.Enqueue(item);
-            MelonLogger.Msg($"Queued item grant: {item}");
-        }
-
-        // Actually grant an item to the player immediately (assumes player is available)
-        private void GrantItemImmediate(EItem item)
+        // Grant an item to the player (for non-chest EItems - consumables, don't persist)
+        private void GrantItem(EItem item)
         {
             try
             {
-                // Unlock the item (tracks it in config)
-                UnlockItem(item);
-
-                // Grant the item via ItemInventory (player availability already checked by caller)
+                // Try to grant immediately if player is available
                 var player = MyPlayer.Instance;
-                player.inventory.itemInventory.AddItem(item);
+                if (player != null && player.inventory != null && player.inventory.itemInventory != null)
+                {
+                    player.inventory.itemInventory.AddItem(item);
+                    MelonLogger.Msg($"Granted consumable item to player: {item}");
+                }
+                else
+                {
+                    MelonLogger.Warning($"Player not in-game - cannot grant consumable item {item} (will be lost)");
+                }
             }
             catch (System.Exception ex)
             {
@@ -444,19 +419,6 @@ namespace Bonkipelago
             return new List<ETome>(unlockedTomes);
         }
 
-        public bool IsItemUnlocked(EItem item)
-        {
-            return unlockedItems.Contains(item);
-        }
-
-        public void UnlockItem(EItem item)
-        {
-            if (unlockedItems.Add(item))
-            {
-                MelonLogger.Msg($"Unlocked item: {item}");
-                SaveUnlockedToConfig();
-            }
-        }
 
         // Scout a location to find out what item is there
         public async void ScoutLocation(long locationId)
