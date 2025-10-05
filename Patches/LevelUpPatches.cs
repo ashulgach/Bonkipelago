@@ -26,16 +26,23 @@ namespace Bonkipelago.Patches
                 // Access the buttons array (the 3 choices)
                 var buttons = __instance.buttons;
 
-                if (buttons == null || buttons.Count == 0)
+                if (buttons == null)
+                {
+                    MelonLogger.Warning("Buttons array is null in UpgradePicker");
+                    return;
+                }
+
+                int buttonCount = buttons.Count;
+                MelonLogger.Msg($"Found {buttonCount} upgrade choices");
+
+                if (buttonCount == 0)
                 {
                     MelonLogger.Warning("No buttons found in UpgradePicker");
                     return;
                 }
 
-                MelonLogger.Msg($"Found {buttons.Count} upgrade choices");
-
                 // Check each button
-                for (int i = 0; i < buttons.Count; i++)
+                for (int i = 0; i < buttonCount; i++)
                 {
                     var button = buttons[i];
                     if (button == null || button.upgradable == null)
