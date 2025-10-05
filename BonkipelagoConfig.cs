@@ -10,6 +10,9 @@ namespace Bonkipelago
         private static MelonPreferences_Entry<string> password;
         private static MelonPreferences_Entry<bool> autoConnect;
         private static MelonPreferences_Entry<int> chestsOpened;
+        private static MelonPreferences_Entry<string> unlockedWeapons;
+        private static MelonPreferences_Entry<string> unlockedTomes;
+        private static MelonPreferences_Entry<string> unlockedItems;
 
         public static string ServerUrl => serverUrl.Value;
         public static string SlotName => slotName.Value;
@@ -21,6 +24,36 @@ namespace Bonkipelago
             set
             {
                 chestsOpened.Value = value;
+                Save();
+            }
+        }
+
+        public static string UnlockedWeapons
+        {
+            get => unlockedWeapons.Value;
+            set
+            {
+                unlockedWeapons.Value = value;
+                Save();
+            }
+        }
+
+        public static string UnlockedTomes
+        {
+            get => unlockedTomes.Value;
+            set
+            {
+                unlockedTomes.Value = value;
+                Save();
+            }
+        }
+
+        public static string UnlockedItems
+        {
+            get => unlockedItems.Value;
+            set
+            {
+                unlockedItems.Value = value;
                 Save();
             }
         }
@@ -60,6 +93,24 @@ namespace Bonkipelago
                 "ChestsOpened",
                 0,
                 description: "Number of chests opened (counter for Archipelago location checks)"
+            );
+
+            unlockedWeapons = category.CreateEntry(
+                "UnlockedWeapons",
+                "FireStaff",
+                description: "Comma-separated list of unlocked weapons"
+            );
+
+            unlockedTomes = category.CreateEntry(
+                "UnlockedTomes",
+                "",
+                description: "Comma-separated list of unlocked tomes"
+            );
+
+            unlockedItems = category.CreateEntry(
+                "UnlockedItems",
+                "",
+                description: "Comma-separated list of unlocked items"
             );
 
             // Save the config file

@@ -43,8 +43,8 @@ namespace Bonkipelago.Patches
                     return;
                 }
 
-                // Check location with Archipelago
-                ArchipelagoManager.Instance.CheckLocation(locationId);
+                // Check location with Archipelago (mark as chest to avoid double-granting)
+                ArchipelagoManager.Instance.CheckLocation(locationId, isChestLocation: true);
 
                 // Increment counter (this also scouts more if needed)
                 ArchipelagoManager.Instance.IncrementChestCounter();
@@ -72,13 +72,31 @@ namespace Bonkipelago.Patches
                 }
                 else
                 {
-                    // Item is for us - try to map Archipelago item to game item
-                    // TODO: Need mapping from Archipelago item IDs to EItem/EWeapon/ETome
-                    MelonLogger.Msg("Item is for us - TODO: map Archipelago item to game item");
-                    IsPlaceholderItem = false; // Not a placeholder
+                    // Item is for us - map Archipelago item to game item
+                    var mappedItem = ItemMapper.MapItem(scoutInfo.ItemId);
 
-                    // For now, keep vanilla item
-                    // itemData.eItem = mappedItem;
+                    switch (mappedItem.Type)
+                    {
+                        case ItemMapper.ItemType.Item:
+                            // It's an EItem, we can replace it directly
+                            MelonLogger.Msg($"Mapped to EItem: {mappedItem.Item}");
+                            itemData.eItem = mappedItem.Item.Value;
+                            IsPlaceholderItem = false;
+                            break;
+
+                        case ItemMapper.ItemType.Weapon:
+                        case ItemMapper.ItemType.Tome:
+                            // Weapons and tomes are unlocked (not given), show placeholder
+                            MelonLogger.Msg($"Mapped to unlock: {mappedItem.Type} - showing Key placeholder (will unlock via OnItemReceived)");
+                            itemData.eItem = EItem.Key;
+                            IsPlaceholderItem = true; // Block granting since it's just an unlock
+                            break;
+
+                        case ItemMapper.ItemType.Unknown:
+                            MelonLogger.Warning($"Unknown item ID {scoutInfo.ItemId} - keeping vanilla item");
+                            IsPlaceholderItem = false;
+                            break;
+                    }
                 }
 
                 MelonLogger.Msg("========================");

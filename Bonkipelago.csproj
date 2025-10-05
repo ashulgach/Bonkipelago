@@ -346,6 +346,7 @@
 		<Compile Include="Core.cs" />
 		<Compile Include="ArchipelagoManager.cs" />
 		<Compile Include="BonkipelagoConfig.cs" />
+		<Compile Include="ItemMapper.cs" />
 		<Compile Include="DebugHelper.cs" />
 		<Compile Include="ComponentInspector.cs" />
 		<Compile Include="Patches\ChestPatches.cs" />
